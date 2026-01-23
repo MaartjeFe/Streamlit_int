@@ -1,3 +1,21 @@
+#Connecting to backend
+import requests
+import streamlit as st
+
+API_URL = st.secrets["API_URL"]
+API_TOKEN = st.secrets["API_TOKEN"]
+
+def call_backend(payload):
+    r = requests.post(
+        f"{API_URL}/v1/run",
+        json=payload,
+        headers={"Authorization": f"Bearer {API_TOKEN}"}
+    )
+    r.raise_for_status()
+    return r.json()
+
+# Frontend bit
+
 
 import streamlit as st
 import pandas as pd
@@ -88,6 +106,62 @@ with tab_main:
             options=["1.5 °C", "1.6 °C", "1.7 °C"],
             key="carbon_budget",
         )
+#helpers before defaults/utils 
+def build_transport_fuel_share(df_years_fuels: pd.DataFrame) -> dict:
+    """
+    Convert years×fuels (% columns) into {year: {fuel_key: float}}
+    Drops the 'Total (%)' row; keeps your column names as keys.
+    """
+    # Ensure the DataFrame has expected index/columns
+    df = df_years_fuels.reindex(index=YEARS, columns=FUEL_ROWS, fill_value=0.0)
+    # Drop the 'Total (%)' column if it exists (you label it both 'Total' and 'Total (%)' in places)
+    # We only want fuel rows to sum to 100; backend will validate.
+    fuel_cols = [c for c in df.columns if c.lower().strip() != "total (%)" and c.lower().strip() != "total"]
+    out = {}
+    for year in YEARS:
+        shares = {}
+        for fuel_col in fuel_cols:
+            # Normalize keys (optional): e.g., "Gasoline (%)" -> "gasoline"
+            key = fuel_col.lower().replace("(%)", "").strip()
+            shares[key] = float(df.loc[year, fuel_col])
+        out[int(year)] = shares
+    return out
+
+def build_transport_activity(km_wide_df: pd.DataFrame) -> dict:
+    """
+    Convert 1×YEARS wide table into {year: float}
+    Currently your values are '% of 2020'; that's fine for the placeholder backend.
+    """
+    # Ensure columns are YEARS and there is exactly one row
+    df = km_wide_df.reindex(columns=YEARS).iloc[0]
+    return {int(y): float(df[y]) for y in YEARS}
+
+#-------Run button
+
+if st.button("Run model"):
+    # Pull current UI state
+    country = st.session_state["country"]
+    scenario = st.session_state["scenario"]
+    # Build payload parts
+    transport_fuel_share = build_transport_fuel_share(st.session_state["transport_df"])
+    transport_activity = build_transport_activity(st.session_state["transport_km_wide"])
+
+    payload = {
+        "country": country,
+        "scenario": scenario,
+        "transport_fuel_share": transport_fuel_share,
+        "transport_activity": transport_activity,
+        "other_inputs": {"carbon_budget": st.session_state.get("carbon_budget")},
+    }
+    try:
+        resp = call_backend(payload)
+        st.success("Backend call OK")
+        st.write(resp)  # replace with your pretty outputs later
+    except requests.HTTPError as e:
+        st.error(f"HTTP error: {e} — {getattr(e.response, 'text', '')}")
+    except Exception as e:
+        st.error(f"Request failed: {e}")
+
 
 # =============================
 # Tab 2 — Transport input
