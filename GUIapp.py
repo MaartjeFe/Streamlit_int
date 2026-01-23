@@ -1,18 +1,22 @@
 #Connecting to backend
+import os
 import requests
 import streamlit as st
 
-API_URL = st.secrets["API_URL"]
-API_TOKEN = st.secrets["API_TOKEN"]
+API_URL   = st.secrets.get("API_URL")   or os.getenv("API_URL")   or "http://localhost:8000"
+API_TOKEN = st.secrets.get("API_TOKEN") or os.getenv("API_TOKEN") or ""
 
 def call_backend(payload):
     r = requests.post(
         f"{API_URL}/v1/run",
         json=payload,
-        headers={"Authorization": f"Bearer {API_TOKEN}"}
+        headers={"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
     )
     r.raise_for_status()
     return r.json()
+
+# Optional: show where you're pointing
+st.caption(f"Backend: {API_URL}")
 
 # Frontend bit
 
